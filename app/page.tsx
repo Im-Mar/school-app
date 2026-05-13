@@ -1,65 +1,383 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+export default function PointSheet() {
+  const [students, setStudents] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  async function fetchData() {
+    const { data, error } = await supabase
+      .from("daily_records")
+      .select("*")
+      .order("Student_Name", { ascending: true });
+
+    console.log("POINT DATA:", data, error);
+
+    if (data) setStudents(data);
+  }
+
+  // 🔥 DAILY TOTAL CALC
+  function calculateDailyTotal(s: any) {
+    let total =
+      (s.Title_AM || 0) +
+      (s.Period_A || 0) +
+      (s.Period_B || 0) +
+      (s.Period_C || 0) +
+      (s.Period_D || 0) +
+      (s.Lunch_Period || 0) +
+      (s.Period_E || 0) +
+      (s.Period_F || 0) +
+      (s.Title_PM || 0);
+
+    if (s.Circle_AM) total += 3;
+    if (s.Circle_PM) total += 8;
+    if (s.WotD) total += 5;
+
+    if (["Suspended", "Unexcused"].includes(s.Suspension)) total -= 28;
+
+    ["WriteUp_1", "WriteUp_2", "WriteUp_3"].forEach((w) => {
+      if (s[w]) total -= 5;
+    });
+
+    total += s.Online_Progress_Value || 0;
+    total += s.Bonus_Points || 0;
+
+    if (s.Level_Drop_Checked) total -= s.Level_Drop_Value || 0;
+
+    return total;
+  }
+
+  // 🔄 UPDATE FIELD (LIVE + SAFE)
+  async function updateField(id: string, field: string, value: any) {
+    // update local instantly (feels responsive)
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, [field]: value } : s
+      )
+    );
+
+    // update DB
+    await supabase.from("daily_records").update({ [field]: value }).eq("id", id);
+
+    // refetch to stay consistent
+    fetchData();
+  }
+
+  // 🔥 RESET DAY (FULLY FIXED)
+  async function resetDay() {
+    const { data: students, error } = await supabase
+      .from("daily_records")
+      .select("*");
+
+    if (error || !students) {
+      console.error("RESET ERROR:", error);
+      return;
+    }
+
+    // 1. COPY TO HISTORY (with calculated total)
+    const historyPayload = students.map((s) => ({
+  student_id: s.id,
+
+  Student_Name: s.Student_Name,
+  Class_Group: s.Class_Group,
+  School_Date: s.School_Date,
+
+  Title_AM: s.Title_AM,
+  Circle_AM: s.Circle_AM,
+
+  Period_A: s.Period_A,
+  Period_B: s.Period_B,
+  Period_C: s.Period_C,
+  Period_D: s.Period_D,
+  Lunch_Period: s.Lunch_Period,
+  Period_E: s.Period_E,
+  Period_F: s.Period_F,
+
+  Title_PM: s.Title_PM,
+  Circle_PM: s.Circle_PM,
+
+  WotD: s.WotD,
+  Suspension: s.Suspension,
+
+  Online_Progress_Value: s.Online_Progress_Value,
+  Bonus_Points: s.Bonus_Points,
+
+  WriteUp_1: s.WriteUp_1,
+  WriteUp_2: s.WriteUp_2,
+  WriteUp_3: s.WriteUp_3,
+
+  Level_Drop_Checked: s.Level_Drop_Checked,
+  Level_Drop_Value: s.Level_Drop_Value,
+
+  Daily_Total: calculateDailyTotal(s),
+}));
+
+    const { error: insertError } = await supabase
+      .from("history_records")
+      .insert(historyPayload);
+
+    if (insertError) {
+      console.error("INSERT FAILED:", insertError);
+      return;
+    }
+
+    // 2. RESET ALL FIELDS (single batch per student)
+    for (const s of students) {
+      await supabase
+        .from("daily_records")
+        .update({
+          Title_AM: 0,
+          Circle_AM: false,
+          Period_A: 0,
+          Period_B: 0,
+          Period_C: 0,
+          Period_D: 0,
+          Lunch_Period: 0,
+          Period_E: 0,
+          Period_F: 0,
+          Title_PM: 0,
+          Circle_PM: false,
+          WotD: false,
+          Suspension: "",
+          Online_Progress_Value: 0,
+          Bonus_Points: 0,
+          WriteUp_1: "",
+          WriteUp_2: "",
+          WriteUp_3: "",
+          Level_Drop_Checked: false,
+          Daily_Total: 0,
+        })
+        .eq("id", s.id);
+    }
+
+    await fetchData();
+  }
+
+  const numberOptions = [-3, -2, -1, 0, 1, 2, 3];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div style={{ padding: 20 }}>
+      <h1>Point Sheet</h1>
+
+      {/* NAV */}
+      <a href="/history">
+        <button style={{ marginBottom: 10 }}>Go to History</button>
+      </a>
+
+      {/* RESET */}
+      <button
+        onClick={resetDay}
+        style={{
+          marginBottom: 20,
+          background: "red",
+          color: "white",
+          padding: "10px",
+        }}
+      >
+        RESET DAY
+      </button>
+
+      <table border={1} cellPadding={6}>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Group</th>
+            <th>Date</th>
+            <th>Title AM</th>
+            <th>Circle AM</th>
+            <th>A</th>
+            <th>B</th>
+            <th>C</th>
+            <th>D</th>
+            <th>Lunch</th>
+            <th>E</th>
+            <th>F</th>
+            <th>Title PM</th>
+            <th>Circle PM</th>
+            <th>WotD</th>
+            <th>Suspension</th>
+            <th>Online</th>
+            <th>Bonus</th>
+            <th>W1</th>
+            <th>W2</th>
+            <th>W3</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {students.map((s) => (
+            <tr key={s.id}>
+              <td>{s.Student_Name}</td>
+
+              <td>
+                <select
+                  value={s.Class_Group || ""}
+                  onChange={(e) =>
+                    updateField(s.id, "Class_Group", e.target.value)
+                  }
+                >
+                  {["MS", "9th", "10th", "11th", "12th"].map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </select>
+              </td>
+
+              <td>
+                <input
+                  type="date"
+                  value={s.School_Date || ""}
+                  onChange={(e) =>
+                    updateField(s.id, "School_Date", e.target.value)
+                  }
+                />
+              </td>
+
+              <td>
+                <select
+                  value={s.Title_AM || 0}
+                  onChange={(e) =>
+                    updateField(s.id, "Title_AM", Number(e.target.value))
+                  }
+                >
+                  {numberOptions.map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              </td>
+
+              <td>
+                <input
+                  type="checkbox"
+                  checked={s.Circle_AM || false}
+                  onChange={(e) =>
+                    updateField(s.id, "Circle_AM", e.target.checked)
+                  }
+                />
+              </td>
+
+              {[
+                "Period_A",
+                "Period_B",
+                "Period_C",
+                "Period_D",
+                "Lunch_Period",
+                "Period_E",
+                "Period_F",
+              ].map((p) => (
+                <td key={p}>
+                  <select
+                    value={s[p] || 0}
+                    onChange={(e) =>
+                      updateField(s.id, p, Number(e.target.value))
+                    }
+                  >
+                    {numberOptions.map((n) => (
+                      <option key={n}>{n}</option>
+                    ))}
+                  </select>
+                </td>
+              ))}
+
+              <td>
+                <select
+                  value={s.Title_PM || 0}
+                  onChange={(e) =>
+                    updateField(s.id, "Title_PM", Number(e.target.value))
+                  }
+                >
+                  {numberOptions.map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              </td>
+
+              <td>
+                <input
+                  type="checkbox"
+                  checked={s.Circle_PM || false}
+                  onChange={(e) =>
+                    updateField(s.id, "Circle_PM", e.target.checked)
+                  }
+                />
+              </td>
+
+              <td>
+                <input
+                  type="checkbox"
+                  checked={s.WotD || false}
+                  onChange={(e) =>
+                    updateField(s.id, "WotD", e.target.checked)
+                  }
+                />
+              </td>
+
+              <td>
+                <select
+                  value={s.Suspension || ""}
+                  onChange={(e) =>
+                    updateField(s.id, "Suspension", e.target.value)
+                  }
+                >
+                  <option value=""></option>
+                  <option>Suspended</option>
+                  <option>Unexcused</option>
+                </select>
+              </td>
+
+              <td>
+                <input
+                  type="number"
+                  value={s.Online_Progress_Value || 0}
+                  onChange={(e) =>
+                    updateField(
+                      s.id,
+                      "Online_Progress_Value",
+                      Number(e.target.value)
+                    )
+                  }
+                />
+              </td>
+
+              <td>
+                <input
+                  type="number"
+                  value={s.Bonus_Points || 0}
+                  onChange={(e) =>
+                    updateField(s.id, "Bonus_Points", Number(e.target.value))
+                  }
+                />
+              </td>
+
+              {["WriteUp_1", "WriteUp_2", "WriteUp_3"].map((w) => (
+                <td key={w}>
+                  <select
+                    value={s[w] || ""}
+                    onChange={(e) =>
+                      updateField(s.id, w, e.target.value)
+                    }
+                  >
+                    <option value=""></option>
+                    {[
+                      "IL","PA","DE","DI","DC","SM",
+                      "AL","HP","H/B","OB","C","O",
+                    ].map((r) => (
+                      <option key={r}>{r}</option>
+                    ))}
+                  </select>
+                </td>
+              ))}
+
+              <td>{calculateDailyTotal(s)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
