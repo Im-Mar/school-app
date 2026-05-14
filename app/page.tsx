@@ -14,7 +14,8 @@ export default function PointSheet() {
     const { data, error } = await supabase
       .from("daily_records")
       .select("*")
-      .order("Student_Name", { ascending: true });
+      .order("Class_Group", { ascending: true })
+.order("Student_Name", { ascending: true });
 
     console.log("POINT DATA:", data, error);
 
